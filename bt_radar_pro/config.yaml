@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Autonomo: Motore di localizzazione indipendente (No Bermuda)"
-version: "1.5.0"
+description: "Radar Standalone con Log Avanzati"
+version: "1.5.1"
 slug: "bt_radar_pro"
 arch:
   - aarch64
@@ -13,7 +13,7 @@ ingress: true
 hassio_api: true
 homeassistant_api: true
 host_network: true
-bluetooth: true # <--- ABILITA L'ACCESSO AL BLUETOOTH
-dbus: true      # <--- NECESSARIO PER IL BLUETOOTH
+bluetooth: true
+dbus: true # <--- Fondamentale per far parlare l'app con l'antenna
 options: {}
 schema: {}
