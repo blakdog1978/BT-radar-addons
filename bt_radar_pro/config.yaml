@@ -1,0 +1,16 @@
+name: "Bluetooth Radar Pro"
+description: "Sistema di localizzazione indoor con mappa interattiva"
+version: "1.0.0"
+slug: "bt_radar_pro"
+arch:
+  - aarch64
+  - amd64
+  - armv7
+init: false
+panel_icon: "mdi:radar"
+panel_title: "BT Radar Pro"
+ingress: true
+options:
+  tracker_id: "inserisci_id_qui"
+schema:
+  tracker_id: str
