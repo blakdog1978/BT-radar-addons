@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Standalone con Log Avanzati"
-version: "1.5.1"
+description: "Radar Professionale via WebSocket (Multi-Proxy)"
+version: "1.6.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64
@@ -13,7 +13,5 @@ ingress: true
 hassio_api: true
 homeassistant_api: true
 host_network: true
-bluetooth: true
-dbus: true # <--- Fondamentale per far parlare l'app con l'antenna
 options: {}
 schema: {}
