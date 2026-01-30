@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Pro: Diagnostic v1.7.3"
-version: "1.7.3"
+description: "Radar Pro: State Reflection Engine (Bermuda Optimized)"
+version: "1.8.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64

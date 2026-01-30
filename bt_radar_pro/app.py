@@ -1,116 +1,117 @@
-import asyncio
+import time
 import json
 import os
 import threading
 import logging
-import websockets
+import requests
 from flask import Flask, render_template_string, request, redirect
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-logger = logging.getLogger("RadarDiagnostic")
+logger = logging.getLogger("RadarStates")
 
 app = Flask(__name__)
 CONFIG_FILE = "/data/radar_settings.json"
 SUPERVISOR_TOKEN = os.getenv('SUPERVISOR_TOKEN')
+HA_URL = "http://supervisor/core/api/states"
 
-discovered_devices = {}
-total_events = 0
-ws_status = "Inizializzazione..."
-error_details = ""
+# Memoria locale del Radar
+trackers_found = {}
+update_counter = 0
 
-async def monitor_bluetooth():
-    global total_events, ws_status, error_details
-    uri = "ws://supervisor/core/api/websocket"
+def load_settings():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as f: return json.load(f)
+    return {"selected_tracker": None, "friendly_name": "", "selected_room": ""}
+
+def save_settings(s):
+    with open(CONFIG_FILE, 'w') as f: json.dump(s, f)
+
+# --- MOTORE DI RIFLESSIONE STATI ---
+def state_engine():
+    global update_counter
+    headers = {
+        "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
+        "content-type": "application/json",
+    }
     
     while True:
         try:
-            async with websockets.connect(uri) as websocket:
-                # 1. Handshake Iniziale
-                msg = json.loads(await websocket.recv())
+            response = requests.get(HA_URL, headers=headers, timeout=5)
+            if response.status_code == 200:
+                states = response.json()
+                update_counter += 1
                 
-                # 2. Autenticazione
-                await websocket.send(json.dumps({
-                    "type": "auth",
-                    "access_token": SUPERVISOR_TOKEN
-                }))
-                
-                auth_resp = json.loads(await websocket.recv())
-                if auth_resp.get("type") != "auth_ok":
-                    ws_status = "❌ Autenticazione Fallita"
-                    error_details = auth_resp.get("message", "Token non valido")
-                    await asyncio.sleep(10)
-                    continue
-
-                # 3. Tentativo di Sottoscrizione
-                # Usiamo un ID più alto per evitare conflitti
-                await websocket.send(json.dumps({
-                    "id": 100,
-                    "type": "bluetooth/subscribe"
-                }))
-                
-                sub_resp = json.loads(await websocket.recv())
-                if sub_resp.get("success"):
-                    ws_status = "✅ Collegato e in Ascolto"
-                    error_details = ""
-                    logger.info(ws_status)
-                else:
-                    ws_status = "⚠️ Sottoscrizione fallita"
-                    # QUI CATTURIAMO IL MOTIVO REALE
-                    error_info = sub_resp.get("error", {})
-                    error_details = f"Codice: {error_info.get('code')} - Messaggio: {error_info.get('message')}"
-                    logger.error(f"Errore HA: {error_details}")
-                    await asyncio.sleep(10)
-                    continue
-
-                # 4. Loop Dati
-                async for message in websocket:
-                    data = json.loads(message)
-                    if data.get("type") == "event":
-                        total_events += 1
-                        event = data.get("event", {})
-                        mac = event.get("address")
-                        if mac:
-                            rssi = event.get("rssi")
-                            dist = round(10**((-60 - rssi) / 22), 2)
-                            discovered_devices[mac] = {
-                                "rssi": rssi,
-                                "dist": dist,
-                                "proxy": event.get("source", "Proxy")
-                            }
+                for s in states:
+                    entity_id = s['entity_id']
+                    # Filtriamo solo i tracker di Bermuda
+                    if entity_id.startswith("device_tracker.bermuda_"):
+                        attrs = s.get('attributes', {})
+                        
+                        # Estraiamo i dati utili
+                        trackers_found[entity_id] = {
+                            "name": attrs.get('friendly_name', entity_id),
+                            "state": s.get('state', 'unknown'),
+                            "scanner": attrs.get('scanner') or "In ricerca...",
+                            "rssi": attrs.get('rssi', 'N/D'),
+                            "distance": attrs.get('distance', 0)
+                        }
+            else:
+                logger.error(f"Errore API HA: {response.status_code}")
         except Exception as e:
-            ws_status = "❌ Errore Connessione"
-            error_details = str(e)
-            await asyncio.sleep(5)
+            logger.error(f"Errore Engine: {e}")
+        
+        time.sleep(2) # Aggiornamento ogni 2 secondi
 
-threading.Thread(target=lambda: asyncio.run(monitor_bluetooth()), daemon=True).start()
+threading.Thread(target=state_engine, daemon=True).start()
 
 @app.route('/')
 def index():
-    device_rows = "".join([f"<tr><td>{m}</td><td><b>{d['dist']}m</b></td><td>{d['proxy']}</td></tr>" for m, d in discovered_devices.items()])
-    
+    settings = load_settings()
+    rows = ""
+    for eid, data in trackers_found.items():
+        is_sel = eid == settings['selected_tracker']
+        border = "border: 2px solid #58a6ff; background: #1c2128;" if is_sel else "border: 1px solid #333;"
+        
+        rows += f"""
+        <div style="padding:15px; border-radius:12px; margin:10px 0; {border}">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <b>{data['name']}</b>
+                <span style="color:#58a6ff; font-weight:bold;">{data['distance']} m</span>
+            </div>
+            <div style="font-size:0.8em; color:#8b949e; margin-top:5px;">
+                Stato: {data['state']} | Scanner: <b>{data['scanner']}</b>
+            </div>
+            <form action="/select" method="post" style="margin-top:10px;">
+                <input type="hidden" name="eid" value="{eid}">
+                <button type="submit" style="width:100%; background:#238636; color:white; border:none; padding:8px; border-radius:6px; cursor:pointer;">
+                    { 'TRACKER ATTIVO' if is_sel else 'SELEZIONA' }
+                </button>
+            </form>
+        </div>
+        """
+
     return f"""
     <html>
-        <head><meta http-equiv="refresh" content="2">
-        <style>
-            body {{ background:#0d1117; color:#c9d1d9; font-family:sans-serif; padding:20px; }}
-            .card {{ background:#161b22; border:1px solid #30363d; border-radius:12px; padding:20px; }}
-            .error-box {{ background:#442a2a; border:1px solid #f85149; color:#ff7b72; padding:15px; border-radius:8px; margin:10px 0; font-size:0.9em; }}
-            table {{ width:100%; margin-top:20px; border-collapse:collapse; }}
-            th, td {{ padding:12px; border-bottom:1px solid #30363d; text-align:left; }}
+        <head><meta http-equiv="refresh" content="3">
+        <style>body{{background:#0d1117; color:#c9d1d9; font-family:sans-serif; padding:20px; max-width:500px; margin:auto;}}
+        .header{{background:#161b22; padding:15px; border-radius:12px; border:1px solid #30363d; margin-bottom:20px; text-align:center;}}
         </style></head>
         <body>
-            <div class="card">
-                <h2>🛰️ Radar Diagnostic 1.7.3</h2>
-                <p>Stato: <b>{ws_status}</b></p>
-                
-                { f'<div class="error-box"><b>Dettaglio Errore:</b><br>{error_details}</div>' if error_details else '' }
-                
-                <p>Eventi: <b>{total_events}</b></p>
-                <table><tr><th>MAC</th><th>Dist</th><th>Proxy</th></tr>{device_rows}</table>
+            <div class="header">
+                <h2 style="margin:0; color:#58a6ff;">🛰️ Radar State Engine</h2>
+                <small>Sincronizzato: {update_counter} volte</small>
             </div>
+            {rows if trackers_found else "<p style='text-align:center;'>Nessun tracker Bermuda trovato negli stati...</p>"}
         </body>
     </html>
     """
+
+@app.route('/select', methods=['POST'])
+def select():
+    s = load_settings()
+    s["selected_tracker"] = request.form.get('eid')
+    save_settings(s)
+    return redirect('/')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8099)
