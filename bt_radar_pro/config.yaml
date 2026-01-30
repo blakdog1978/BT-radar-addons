@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
 description: "Radar con autodiscovery e rilevamento movimento"
-version: "1.1.0"
+version: "1.1.1"
 slug: "bt_radar_pro"
 arch:
   - aarch64
