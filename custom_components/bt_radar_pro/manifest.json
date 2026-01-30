@@ -1,10 +1,10 @@
 {
   "domain": "bt_radar_pro",
   "name": "Bluetooth Radar Pro",
-  "codeowners": ["@tuo-username"],
-  "dependencies": ["bluetooth"],
-  "documentation": "https://github.com/tuo-username/tuo-repo",
-  "iot_class": "local_push",
   "version": "2.0.0",
-  "requirements": []
+  "documentation": "https://github.com/blakdog1978/BT-radar-addons",
+  "dependencies": ["bluetooth"],
+  "codeowners": [],
+  "requirements": [],
+  "iot_class": "local_push"
 }
