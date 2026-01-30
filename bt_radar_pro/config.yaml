@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Multi-Proxy: Debug Mode e Ricezione Forzata"
-version: "1.6.1"
+description: "Radar Multi-Proxy: Debug Totale e Log Raw"
+version: "1.6.2"
 slug: "bt_radar_pro"
 arch:
   - aarch64
