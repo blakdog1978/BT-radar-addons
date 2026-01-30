@@ -1,15 +1,9 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# Installiamo le dipendenze di sistema per il Bluetooth
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    bluez \
-    dbus
-
-# Installiamo le librerie Python
-RUN pip install flask requests bleak --break-system-packages
+RUN apk add --no-cache python3 py3-pip
+# Installiamo websockets per parlare con il cuore di HA
+RUN pip install flask requests websockets --break-system-packages
 
 COPY app.py /app.py
 COPY run.sh /run.sh
