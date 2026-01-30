@@ -1,10 +1,10 @@
 {
   "domain": "bt_radar_pro",
   "name": "Bluetooth Radar Pro",
-  "version": "2.0.0",
+  "version": "2.0.2",
+  "config_flow": true,
   "documentation": "https://github.com/blakdog1978/BT-radar-addons",
   "dependencies": ["bluetooth"],
-  "codeowners": [],
-  "requirements": [],
+  "codeowners": ["@blakdog1978"],
   "iot_class": "local_push"
 }
