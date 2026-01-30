@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Professionale via WebSocket (Multi-Proxy)"
-version: "1.6.0"
+description: "Radar Multi-Proxy: Debug Mode e Ricezione Forzata"
+version: "1.6.1"
 slug: "bt_radar_pro"
 arch:
   - aarch64
