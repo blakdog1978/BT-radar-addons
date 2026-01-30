@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Pro: Native HA Bluetooth Engine (No Bermuda)"
-version: "1.16.0"
+description: "Radar Pro: Global Event Listener (Bypass Mode)"
+version: "1.17.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64
