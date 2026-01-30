@@ -7,132 +7,91 @@ import websockets
 from flask import Flask, render_template_string, request, redirect
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-logger = logging.getLogger("RadarBermuda")
+logger = logging.getLogger("RadarDebug")
 
 app = Flask(__name__)
 CONFIG_FILE = "/data/radar_settings.json"
 SUPERVISOR_TOKEN = os.getenv('SUPERVISOR_TOKEN')
 
-# Dati Radar
+# Stato globale
 discovered_devices = {}
-proxies_found = set()
 total_events = 0
+ws_status = "Inizializzazione..."
 
-def load_settings():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f: return json.load(f)
-    return {"selected_tracker": None, "friendly_name": "", "selected_room": ""}
-
-async def bermuda_engine():
-    global total_events
+async def monitor_bluetooth():
+    global total_events, ws_status
     uri = "ws://supervisor/core/api/websocket"
     
     while True:
         try:
             async with websockets.connect(uri) as websocket:
-                # Auth
+                # 1. Autenticazione
                 await websocket.send(json.dumps({"type": "auth", "access_token": SUPERVISOR_TOKEN}))
-                auth_res = await websocket.recv()
-                
-                # Sottoscrizione a TUTTI i dati Bluetooth (come fa il coordinator)
+                auth_resp = json.loads(await websocket.recv())
+                if auth_resp.get("type") != "auth_ok":
+                    ws_status = "❌ Errore Autenticazione"
+                    logger.error(ws_status)
+                    return
+
+                # 2. Richiesta Sottoscrizione
                 await websocket.send(json.dumps({
-                    "id": 1,
-                    "type": "bluetooth/subscribe",
+                    "id": 10,
+                    "type": "bluetooth/subscribe"
                 }))
                 
-                logger.info("🚀 Motore Bermuda-Style avviato. In ascolto dei proxy...")
-                
+                # 3. Controllo se HA accetta la sottoscrizione
+                sub_resp = json.loads(await websocket.recv())
+                if sub_resp.get("success"):
+                    ws_status = "✅ Flusso Bluetooth ATTIVO"
+                    logger.info(ws_status)
+                else:
+                    ws_status = f"⚠️ Sottoscrizione negata: {sub_resp.get('error', {}).get('message', 'Errore sconosciuto')}"
+                    logger.warning(ws_status)
+
+                # 4. Ascolto pacchetti
                 async for message in websocket:
                     data = json.loads(message)
                     if data.get("type") == "event":
                         total_events += 1
                         event = data.get("event", {})
                         mac = event.get("address")
-                        rssi = event.get("rssi")
-                        source = event.get("source", "Server Locale")
-                        
-                        if mac and rssi:
-                            proxies_found.add(source)
-                            # Formula Bermuda: Distanza basata su RSSI e attenuazione ambiente
-                            # Usiamo -60 come reference power a 1 metro
-                            dist = round(10**((-60 - rssi) / (10 * 2.2)), 2)
-                            
-                            # Aggiorniamo il database in tempo reale
+                        if mac:
+                            rssi = event.get("rssi")
+                            dist = round(10**((-60 - rssi) / 22), 2)
                             discovered_devices[mac] = {
                                 "rssi": rssi,
                                 "dist": dist,
-                                "proxy": source.replace("_", " ").title(),
-                                "last_seen": total_events
+                                "proxy": event.get("source", "Proxy").replace("_", " ").title()
                             }
         except Exception as e:
-            logger.error(f"❌ Errore connessione: {e}")
+            ws_status = f"❌ Connessione persa: {e}"
+            logger.error(ws_status)
             await asyncio.sleep(5)
 
-# Avvio del motore in background
-threading.Thread(target=lambda: asyncio.run(bermuda_engine()), daemon=True).start()
+threading.Thread(target=lambda: asyncio.run(monitor_bluetooth()), daemon=True).start()
 
 @app.route('/')
 def index():
-    settings = load_settings()
-    # Ordina: i più vicini in alto
-    sorted_devs = dict(sorted(discovered_devices.items(), key=lambda x: x[1]['rssi'], reverse=True))
-    
-    device_html = ""
-    for mac, data in sorted_devs.items():
-        is_sel = mac == settings['selected_tracker']
-        style = "border: 2px solid #58a6ff; background: #1c2128;" if is_sel else "border: 1px solid #30363d;"
-        
-        device_html += f"""
-        <div style="padding:15px; border-radius:12px; margin:10px 0; {style}">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-family:monospace; font-weight:bold;">{mac}</span>
-                <span style="color:#58a6ff; font-size:1.3em;">{data['dist']}m</span>
-            </div>
-            <div style="font-size:0.8em; color:#8b949e; margin-top:5px;">
-                📡 Sentito da: <b>{data['proxy']}</b> | RSSI: {data['rssi']}
-            </div>
-            <form action="/set_tracker" method="post" style="margin-top:10px;">
-                <input type="hidden" name="tracker" value="{mac}">
-                <button type="submit" style="width:100%; background:#238636; color:white; border:none; padding:8px; border-radius:6px; cursor:pointer;">
-                    { 'TRACKER ATTIVO' if is_sel else 'IMPOSTA COME TRACKER' }
-                </button>
-            </form>
-        </div>
-        """
-
+    device_rows = "".join([f"<tr><td>{m}</td><td><b>{d['dist']}m</b></td><td>{d['proxy']}</td></tr>" for m, d in discovered_devices.items()])
     return f"""
     <html>
-        <head>
-            <meta http-equiv="refresh" content="2">
-            <style>
-                body {{ background:#0d1117; color:#c9d1d9; font-family:sans-serif; padding:20px; max-width:550px; margin:auto; }}
-                .status-box {{ background:#161b22; border:1px solid #30363d; border-radius:15px; padding:20px; margin-bottom:20px; }}
-                .badge {{ background:#21262d; padding:4px 10px; border-radius:10px; font-size:0.8em; border:1px solid #444; }}
-            </style>
-        </head>
+        <head><meta http-equiv="refresh" content="2">
+        <style>
+            body {{ background:#0d1117; color:white; font-family:sans-serif; padding:20px; }}
+            .status {{ padding:10px; border-radius:8px; background:#161b22; border:1px solid #333; margin-bottom:20px; }}
+            table {{ width:100%; border-collapse:collapse; }}
+            td, th {{ padding:10px; border-bottom:1px solid #333; text-align:left; }}
+        </style></head>
         <body>
-            <div class="status-box">
-                <h2 style="margin:0; color:#58a6ff;">🛰️ Radar Bermuda-Mode</h2>
-                <div style="margin-top:10px; font-size:0.9em;">
-                    Proxy attivi: <span style="color:#2ea043;">{len(proxies_found)}</span> | 
-                    Segnali ricevuti: <span style="color:#2ea043;">{total_events}</span>
-                </div>
-                <div style="margin-top:10px; font-size:0.8em; color:#8b949e;">
-                    Target: <b>{settings['friendly_name'] or 'Non impostato'}</b> in <b>{settings['selected_room'] or 'Nessuna'}</b>
-                </div>
+            <h1>🛰️ Radar Deep Debug</h1>
+            <div class="status">
+                Stato WS: <b>{ws_status}</b><br>
+                Eventi ricevuti: <b style="color:#2ea043;">{total_events}</b>
             </div>
-
-            {device_html if discovered_devices else "<p style='text-align:center; padding:40px; color:#8b949e;'>🔍 Ricerca segnali Bluetooth dai proxy Shelly...</p>"}
+            { "<table><tr><th>MAC</th><th>Distanza</th><th>Sorgente</th></tr>" + device_rows + "</table>" if discovered_devices else "<p>In attesa di dati... se il contatore eventi è fermo, il problema è nei permessi di HA.</p>" }
         </body>
     </html>
     """
-
-@app.route('/set_tracker', methods=['POST'])
-def set_tracker():
-    s = load_settings()
-    s["selected_tracker"] = request.form.get('tracker')
-    with open(CONFIG_FILE, 'w') as f: json.dump(s, f)
-    return redirect('/')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8099)
