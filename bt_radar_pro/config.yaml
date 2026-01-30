@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar e localizzazione indoor professionale"
-version: "1.2.0" # <--- Aumenta la versione!
+description: "Radar Professionale: Discovery, Rinomina e Gestione Stanze (No underscore)"
+version: "1.4.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64
@@ -13,6 +13,5 @@ ingress: true
 hassio_api: true
 homeassistant_api: true
 host_network: true
-# Rimuoviamo il tracker da qui per gestirlo nell'App
 options: {}
 schema: {}
