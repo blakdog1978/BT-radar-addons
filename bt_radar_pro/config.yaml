@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Pro: Filtro Bluetooth LE & Zero-Distance Hide"
-version: "1.13.0"
+description: "Radar Pro: No-Refresh UI & Deep Attribute Debug"
+version: "1.14.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64

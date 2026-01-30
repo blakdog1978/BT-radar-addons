@@ -1,6 +1,5 @@
 import time, json, os, threading, logging, requests
-from flask import Flask, render_template_string, request, redirect
-from collections import deque
+from flask import Flask, jsonify, request, redirect
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger("RadarPro")
@@ -10,100 +9,109 @@ CONFIG_FILE = "/data/radar_settings.json"
 SUPERVISOR_TOKEN = os.getenv('SUPERVISOR_TOKEN')
 HA_URL = "http://supervisor/core/api/states"
 
-history = {}
 trackers_found = {}
-
-def load_json(path, default):
-    if os.path.exists(path):
-        with open(path, 'r') as f: return json.load(f)
-    return default
 
 def state_engine():
     headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
-    logger.info("🛡️ Motore Strict-Bluetooth Avviato...")
+    logger.info("🕵️ Analisi profonda entità avviata...")
     
     while True:
         try:
             response = requests.get(HA_URL, headers=headers, timeout=5)
             if response.status_code == 200:
                 new_data = {}
-                for s in response.json():
+                entities = response.json()
+                
+                # Debug: Logghiamo i primi 2 tracker che troviamo per vedere i loro attributi
+                debug_count = 0
+                
+                for s in entities:
                     eid = s['entity_id']
-                    attrs = s.get('attributes', {})
-                    
-                    # FILTRO RIGIDO: Solo Bluetooth Low Energy e solo device_tracker
-                    if eid.startswith("device_tracker.") and attrs.get('source_type') == "bluetooth_le":
+                    if eid.startswith("device_tracker."):
+                        attrs = s.get('attributes', {})
                         
-                        dist = attrs.get('distance', 0)
-                        if dist is None: dist = 0
-                        dist = float(dist)
+                        # Debug Log per le prime entità incontrate
+                        if debug_count < 2:
+                            logger.info(f"🔍 DEBUG Entity: {eid} | Attrs: {list(attrs.keys())} | Source: {attrs.get('source_type')}")
+                            debug_count += 1
                         
-                        # Monitoriamo il movimento solo se la distanza è > 0
-                        if dist > 0:
-                            if eid not in history: history[eid] = deque(maxlen=5)
-                            history[eid].append(dist)
-                            motion = round(max(history[eid]) - min(history[eid]), 2)
-                        else:
-                            motion = 0
-
-                        new_data[eid] = {
-                            "name": attrs.get('friendly_name', eid).split("Bermuda")[0].strip(),
-                            "scanner": attrs.get('scanner') or "Ricerca...",
-                            "distance": round(dist, 2),
-                            "motion": motion,
-                            "active": dist > 0
-                        }
+                        # Filtro meno restrittivo per test
+                        if "bermuda" in eid or attrs.get('source_type') == "bluetooth_le":
+                            dist = attrs.get('distance', 0)
+                            if dist is None: dist = 0
+                            
+                            new_data[eid] = {
+                                "name": attrs.get('friendly_name', eid).split("Bermuda")[0].strip(),
+                                "scanner": attrs.get('scanner') or "In ricerca",
+                                "distance": round(float(dist), 2)
+                            }
                 
                 trackers_found.clear()
                 trackers_found.update(new_data)
-                
-                # Log di diagnostica
-                attivi = [d['name'] for d in trackers_found.values() if d['active']]
-                if attivi:
-                    logger.info(f"📡 Dispositivi BT in portata: {attivi}")
-                
         except Exception as e:
-            logger.error(f"❌ Errore API: {e}")
+            logger.error(f"❌ Errore: {e}")
         time.sleep(2)
 
 threading.Thread(target=state_engine, daemon=True).start()
 
+@app.route('/api/data')
+def get_data():
+    return jsonify(trackers_found)
+
 @app.route('/')
 def index():
-    settings = load_json(CONFIG_FILE, {"selected_tracker": None})
-    # Mostriamo solo i dispositivi con distanza > 0 (gli attivi)
-    active_devs = {k: v for k, v in trackers_found.items() if v['active'] or k == settings['selected_tracker']}
-    sorted_devs = sorted(active_devs.items(), key=lambda x: x[1]['name'])
-    
-    rows = ""
-    for eid, data in sorted_devs:
-        is_sel = eid == settings['selected_tracker']
-        border = "border: 2px solid #58a6ff; background: #1c2128;" if is_sel else "border: 1px solid #333;"
-        
-        rows += f"""
-        <div style="padding:10px; border-radius:8px; margin:5px 0; {border}">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b>{"📱" if data['active'] else "💤"} {data['name']}</b>
-                <b style="color:#58a6ff; font-size:1.2em;">{data['distance']}m</b>
-            </div>
-            <div style="font-size:0.7em; color:#8b949e; margin-top:4px;">
-                Scanner: {data['scanner']} | Movimento: {data['motion']}m
-            </div>
-            <form action="/select" method="post" style="margin-top:8px;">
-                <input type="hidden" name="eid" value="{eid}">
-                <button type="submit" style="width:100%; background:#238636; color:white; border:none; padding:4px; border-radius:4px; cursor:pointer;">
-                    { 'TRACKER SELEZIONATO' if is_sel else 'USA QUESTO' }
-                </button>
-            </form>
-        </div> """
-
-    return f"""
+    return """
     <html>
-        <head><meta http-equiv="refresh" content="3">
-        <style>body{{background:#0d1117; color:#c9d1d9; font-family:sans-serif; padding:10px; max-width:400px; margin:auto;}}</style></head>
+        <head>
+            <style>
+                body { background:#0d1117; color:#c9d1d9; font-family:sans-serif; padding:15px; max-width:450px; margin:auto; }
+                .card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:12px; margin:8px 0; }
+                .btn { width:100%; background:#238636; color:white; border:none; padding:6px; border-radius:4px; cursor:pointer; margin-top:8px; }
+            </style>
+        </head>
         <body>
-            <h3 style="color:#58a6ff; text-align:center;">🛰️ Radar Strict v1.13</h3>
-            {rows if rows else "<p style='text-align:center; color:#666;'>Nessun trasmettitore Bluetooth attivo rilevato...<br><br><small>Mettiti vicino a uno Shelly con il telefono!</small></p>"}
+            <h3 style="color:#58a6ff; text-align:center;">🛰️ Radar Pro v1.14</h3>
+            <div id="status" style="text-align:center; font-size:0.8em; color:#8b949e; margin-bottom:10px;">Aggiornamento dati...</div>
+            <div id="device-list"></div>
+
+            <script>
+                async function updateData() {
+                    try {
+                        const response = await fetch('/api/data');
+                        const data = await response.json();
+                        const list = document.getElementById('device-list');
+                        const status = document.getElementById('status');
+                        
+                        status.innerText = "Dati aggiornati alle " + new Date().toLocaleTimeString();
+                        
+                        let html = "";
+                        for (const [eid, info] of Object.entries(data)) {
+                            html += `
+                            <div class="card">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <b>📱 ${info.name}</b>
+                                    <b style="color:#58a6ff;">${info.distance}m</b>
+                                </div>
+                                <div style="font-size:0.7em; color:#8b949e; margin-top:4px;">Scanner: ${info.scanner}</div>
+                                <button class="btn" onclick="selectDevice('${eid}')">USA QUESTO</button>
+                            </div>`;
+                        }
+                        if (html === "") html = "<p style='text-align:center; color:#666;'>In attesa di dispositivi Bluetooth...</p>";
+                        list.innerHTML = html;
+                    } catch (e) { console.error(e); }
+                }
+                
+                function selectDevice(eid) {
+                    fetch('/select', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'eid=' + encodeURIComponent(eid)
+                    }).then(() => alert('Tracker impostato!'));
+                }
+
+                setInterval(updateData, 2000);
+                updateData();
+            </script>
         </body>
     </html>
     """
@@ -112,7 +120,7 @@ def index():
 def select():
     eid = request.form.get('eid')
     with open(CONFIG_FILE, 'w') as f: json.dump({"selected_tracker": eid}, f)
-    return redirect('/')
+    return "OK"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8099)
