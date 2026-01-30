@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Multi-Proxy: Debug Totale e Log Raw"
-version: "1.6.2"
+description: "Radar Pro: Bermuda Logic Engine (Multi-Proxy)"
+version: "1.7.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64
