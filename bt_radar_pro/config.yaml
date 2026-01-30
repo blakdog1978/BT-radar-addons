@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Professionale: Discovery, Rinomina e Gestione Stanze (No underscore)"
-version: "1.4.0"
+description: "Radar Autonomo: Motore di localizzazione indipendente (No Bermuda)"
+version: "1.5.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64
@@ -13,5 +13,7 @@ ingress: true
 hassio_api: true
 homeassistant_api: true
 host_network: true
+bluetooth: true # <--- ABILITA L'ACCESSO AL BLUETOOTH
+dbus: true      # <--- NECESSARIO PER IL BLUETOOTH
 options: {}
 schema: {}
