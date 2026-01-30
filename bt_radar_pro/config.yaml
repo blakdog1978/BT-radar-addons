@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Pro: Deep WebSocket Debug"
-version: "1.7.1"
+description: "Radar Pro: Fixed WS Authentication"
+version: "1.7.2"
 slug: "bt_radar_pro"
 arch:
   - aarch64
