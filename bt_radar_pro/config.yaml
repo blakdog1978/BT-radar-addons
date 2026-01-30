@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Sistema di localizzazione indoor con mappa interattiva"
-version: "1.0.0"
+description: "Radar con autodiscovery e rilevamento movimento"
+version: "1.1.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64
@@ -10,7 +10,12 @@ init: false
 panel_icon: "mdi:radar"
 panel_title: "BT Radar Pro"
 ingress: true
+# --- AGGIUNTE PROFESSIONAL ---
+hassio_api: true
+homeassistant_api: true
+host_network: true
+# ----------------------------
 options:
-  tracker_id: "inserisci_id_qui"
+  tracker_id: ""
 schema:
   tracker_id: str
