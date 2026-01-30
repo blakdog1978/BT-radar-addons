@@ -1,62 +1,69 @@
-import time, json, os, threading, logging, requests
-from flask import Flask, jsonify, request, redirect
+import asyncio
+import json
+import os
+import threading
+import logging
+import websockets
+from flask import Flask, jsonify
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s', datefmt='%H:%M:%S')
-logger = logging.getLogger("RadarPro")
+logger = logging.getLogger("RadarNative")
 
 app = Flask(__name__)
-CONFIG_FILE = "/data/radar_settings.json"
 SUPERVISOR_TOKEN = os.getenv('SUPERVISOR_TOKEN')
-HA_URL = "http://supervisor/core/api/states"
+raw_bt_data = {}
 
-trackers_found = {}
-
-def state_engine():
-    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
-    logger.info("🕵️ Analisi profonda entità avviata...")
-    
+async def native_bluetooth_engine():
+    uri = "ws://supervisor/core/api/websocket"
     while True:
         try:
-            response = requests.get(HA_URL, headers=headers, timeout=5)
-            if response.status_code == 200:
-                new_data = {}
-                entities = response.json()
+            async with websockets.connect(uri) as websocket:
+                # 1. Autenticazione
+                await websocket.recv()
+                await websocket.send(json.dumps({"type": "auth", "access_token": SUPERVISOR_TOKEN}))
+                auth_res = json.loads(await websocket.recv())
                 
-                # Debug: Logghiamo i primi 2 tracker che troviamo per vedere i loro attributi
-                debug_count = 0
-                
-                for s in entities:
-                    eid = s['entity_id']
-                    if eid.startswith("device_tracker."):
-                        attrs = s.get('attributes', {})
-                        
-                        # Debug Log per le prime entità incontrate
-                        if debug_count < 2:
-                            logger.info(f"🔍 DEBUG Entity: {eid} | Attrs: {list(attrs.keys())} | Source: {attrs.get('source_type')}")
-                            debug_count += 1
-                        
-                        # Filtro meno restrittivo per test
-                        if "bermuda" in eid or attrs.get('source_type') == "bluetooth_le":
-                            dist = attrs.get('distance', 0)
-                            if dist is None: dist = 0
-                            
-                            new_data[eid] = {
-                                "name": attrs.get('friendly_name', eid).split("Bermuda")[0].strip(),
-                                "scanner": attrs.get('scanner') or "In ricerca",
-                                "distance": round(float(dist), 2)
-                            }
-                
-                trackers_found.clear()
-                trackers_found.update(new_data)
-        except Exception as e:
-            logger.error(f"❌ Errore: {e}")
-        time.sleep(2)
+                if auth_res.get("type") != "auth_ok":
+                    logger.error("❌ Token rifiutato")
+                    await asyncio.sleep(10); continue
 
-threading.Thread(target=state_engine, daemon=True).start()
+                # 2. Sottoscrizione al segnale BT nativo (Metodo Professionale)
+                # Proviamo a chiedere i dati degli scanner (Shelly/ESP32)
+                await websocket.send(json.dumps({
+                    "id": 1,
+                    "type": "bluetooth/subscribe"
+                }))
+                
+                logger.info("📡 In attesa di dati Bluetooth nativi da HA...")
+                
+                async for message in websocket:
+                    data = json.loads(message)
+                    if data.get("type") == "event":
+                        event = data.get("event", {})
+                        mac = event.get("address")
+                        rssi = event.get("rssi")
+                        if mac and rssi:
+                            # Calcoliamo la distanza noi, come faceva Bermuda
+                            # d = 10^((Measured Power - RSSI) / (10 * N))
+                            dist = round(10**((-60 - rssi) / 22), 2)
+                            raw_bt_data[mac] = {
+                                "name": mac,
+                                "distance": dist,
+                                "proxy": event.get("source", "Interna"),
+                                "rssi": rssi
+                            }
+                    elif data.get("id") == 1 and not data.get("success"):
+                        logger.error(f"⚠️ HA ha negato l'accesso: {data.get('error', {}).get('message')}")
+
+        except Exception as e:
+            logger.error(f"🔄 Connessione persa: {e}")
+            await asyncio.sleep(5)
+
+threading.Thread(target=lambda: asyncio.run(native_bluetooth_engine()), daemon=True).start()
 
 @app.route('/api/data')
 def get_data():
-    return jsonify(trackers_found)
+    return jsonify(raw_bt_data)
 
 @app.route('/')
 def index():
@@ -64,63 +71,33 @@ def index():
     <html>
         <head>
             <style>
-                body { background:#0d1117; color:#c9d1d9; font-family:sans-serif; padding:15px; max-width:450px; margin:auto; }
-                .card { background:#161b22; border:1px solid #30363d; border-radius:12px; padding:12px; margin:8px 0; }
-                .btn { width:100%; background:#238636; color:white; border:none; padding:6px; border-radius:4px; cursor:pointer; margin-top:8px; }
+                body { background:#0d1117; color:white; font-family:sans-serif; padding:15px; }
+                .card { background:#161b22; border:1px solid #333; padding:10px; margin:10px 0; border-radius:8px; }
             </style>
         </head>
         <body>
-            <h3 style="color:#58a6ff; text-align:center;">🛰️ Radar Pro v1.14</h3>
-            <div id="status" style="text-align:center; font-size:0.8em; color:#8b949e; margin-bottom:10px;">Aggiornamento dati...</div>
-            <div id="device-list"></div>
-
+            <h2 style="text-align:center; color:#58a6ff;">🛰️ Radar Nativo (No Bermuda)</h2>
+            <div id="status" style="text-align:center; color:#8b949e; font-size:0.8em;">Ricerca segnali...</div>
+            <div id="list"></div>
             <script>
-                async function updateData() {
-                    try {
-                        const response = await fetch('/api/data');
-                        const data = await response.json();
-                        const list = document.getElementById('device-list');
-                        const status = document.getElementById('status');
-                        
-                        status.innerText = "Dati aggiornati alle " + new Date().toLocaleTimeString();
-                        
-                        let html = "";
-                        for (const [eid, info] of Object.entries(data)) {
-                            html += `
-                            <div class="card">
-                                <div style="display:flex; justify-content:space-between;">
-                                    <b>📱 ${info.name}</b>
-                                    <b style="color:#58a6ff;">${info.distance}m</b>
-                                </div>
-                                <div style="font-size:0.7em; color:#8b949e; margin-top:4px;">Scanner: ${info.scanner}</div>
-                                <button class="btn" onclick="selectDevice('${eid}')">USA QUESTO</button>
-                            </div>`;
-                        }
-                        if (html === "") html = "<p style='text-align:center; color:#666;'>In attesa di dispositivi Bluetooth...</p>";
-                        list.innerHTML = html;
-                    } catch (e) { console.error(e); }
+                async function update() {
+                    const r = await fetch('/api/data');
+                    const data = await r.json();
+                    let html = "";
+                    for(let mac in data) {
+                        html += `<div class="card">
+                            <b>${mac}</b> - <span style="color:#58a6ff">${data[mac].distance}m</span><br>
+                            <small>Sentito da: ${data[mac].proxy} (RSSI: ${data[mac].rssi})</small>
+                        </div>`;
+                    }
+                    document.getElementById('list').innerHTML = html || "<p style='text-align:center;'>Nessun dato Bluetooth nativo ricevuto.</p>";
+                    document.getElementById('status').innerText = "Aggiornato: " + new Date().toLocaleTimeString();
                 }
-                
-                function selectDevice(eid) {
-                    fetch('/select', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                        body: 'eid=' + encodeURIComponent(eid)
-                    }).then(() => alert('Tracker impostato!'));
-                }
-
-                setInterval(updateData, 2000);
-                updateData();
+                setInterval(update, 2000);
             </script>
         </body>
     </html>
     """
-
-@app.route('/select', methods=['POST'])
-def select():
-    eid = request.form.get('eid')
-    with open(CONFIG_FILE, 'w') as f: json.dump({"selected_tracker": eid}, f)
-    return "OK"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8099)

@@ -1,6 +1,6 @@
 name: "Bluetooth Radar Pro"
-description: "Radar Pro: No-Refresh UI & Deep Attribute Debug"
-version: "1.14.0"
+description: "Radar Pro: Native HA Bluetooth Engine (No Bermuda)"
+version: "1.16.0"
 slug: "bt_radar_pro"
 arch:
   - aarch64
