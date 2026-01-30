@@ -1,11 +1,16 @@
 ARG BUILD_FROM
 FROM $BUILD_FROM
 
-# Installiamo Python e i pacchetti per l'interfaccia web
-RUN apk add --no-cache python3 py3-pip
-RUN pip install flask requests --break-system-packages
+# Installiamo le dipendenze di sistema per il Bluetooth
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    bluez \
+    dbus
 
-# Copiamo i file dell'app
+# Installiamo le librerie Python
+RUN pip install flask requests bleak --break-system-packages
+
 COPY app.py /app.py
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
