@@ -1,28 +1,35 @@
-from homeassistant.core import HomeAssistant, callback
+"""The Bluetooth Radar Pro integration."""
+from __future__ import annotations
+
+import logging
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.components import bluetooth
-from .coordinator import BluetoothRadarCoordinator
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant
+
 from .const import DOMAIN
+from .coordinator import BluetoothRadarCoordinator
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Configura l'integrazione."""
-    coordinator = BluetoothRadarCoordinator(hass)
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+_LOGGER = logging.getLogger(__name__)
 
-    @callback
-    def _handle_bt_event(service_info, change):
-        coordinator.update_device(
-            service_info.address, 
-            service_info.rssi, 
-            service_info.source
-        )
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.DEVICE_TRACKER]
 
-    # Registra il callback nativo
-    entry.async_on_unload(
-        bluetooth.async_register_callback(
-            hass, _handle_bt_event, 
-            bluetooth.BluetoothScanningFilters(connectable=False),
-            bluetooth.BluetoothScanningMode.ACTIVE
-        )
-    )
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Bluetooth Radar Pro from a config entry."""
+    
+    coordinator = BluetoothRadarCoordinator(hass, entry)
+    await coordinator.async_config_entry_first_refresh()
+
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     return True
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        hass.data[DOMAIN].pop(entry.entry_id)
+
+    return unload_ok
